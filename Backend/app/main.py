@@ -22,24 +22,42 @@ stored_fraud_transactions = []
 stored_metrics = {}
 
 def find_amount_column(df):
-    keywords = ['amount', 'amt', 'price', 'value', 'total', 'transaction_amount', 'sale_amount']
+    """Find the column that contains amount/price values"""
+    # Common amount column names
+    keywords = ['amount', 'amt', 'price', 'value', 'total', 'transaction_amount', 'sale_amount', 'Amount', 'AMOUNT']
+    
+    # First check by exact match
     for col in df.columns:
         col_lower = str(col).lower()
         for keyword in keywords:
-            if keyword in col_lower:
+            if keyword.lower() in col_lower:
                 return col
+    
+    # Then check any numeric column
+    for col in df.columns:
+        if pd.api.types.is_numeric_dtype(df[col]):
+            # Check if values look like amounts (typically positive numbers)
+            sample = df[col].dropna().head(100)
+            if len(sample) > 0 and sample.mean() > 0:
+                return col
+    
+    # Return first numeric column as last resort
     for col in df.columns:
         if pd.api.types.is_numeric_dtype(df[col]):
             return col
+    
     return None
 
 def find_fraud_column(df):
-    keywords = ['fraud', 'class', 'label', 'is_fraud', 'target', 'fraudulent']
+    """Find the column that contains fraud labels"""
+    keywords = ['fraud', 'class', 'label', 'is_fraud', 'target', 'fraudulent', 'Class', 'LABEL']
+    
     for col in df.columns:
         col_lower = str(col).lower()
         for keyword in keywords:
-            if keyword in col_lower:
+            if keyword.lower() in col_lower:
                 return col
+    
     return None
 
 @app.post("/api/v1/upload")
@@ -53,6 +71,7 @@ async def upload_file(file: UploadFile = File(...)):
         contents = await file.read()
         print(f"📊 Size: {len(contents) / 1024 / 1024:.2f} MB")
         
+        # Parse CSV with different encodings
         df = None
         for encoding in ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']:
             try:
@@ -64,23 +83,29 @@ async def upload_file(file: UploadFile = File(...)):
                 continue
         
         if df is None:
-            return JSONResponse(status_code=400, content={"error": "Could not parse CSV file"})
+            return JSONResponse(status_code=400, content={"error": "Could not parse CSV file. Please ensure it's a valid CSV format."})
         
         total_rows = len(df)
         print(f"✅ Loaded {total_rows:,} rows with {len(df.columns)} columns")
-        print(f"📋 Columns: {list(df.columns)}")
+        print(f"📋 Columns found: {list(df.columns)}")
         
         # Find amount column
         amount_col = find_amount_column(df)
+        
         if amount_col is None:
-            return JSONResponse(status_code=400, content={"error": "Could not find amount column"})
+            return JSONResponse(
+                status_code=400, 
+                content={"error": f"Could not find amount column. Please ensure your CSV has a column with amounts (like 'amount', 'amt', 'price', 'value', etc.). Found columns: {list(df.columns)}"}
+            )
         
         print(f"💰 Using amount column: '{amount_col}'")
         
-        # Find fraud column
+        # Find fraud column (optional)
         fraud_col = find_fraud_column(df)
         if fraud_col:
             print(f"🚨 Using fraud column: '{fraud_col}'")
+        else:
+            print(f"⚠️ No fraud column found. Using rule-based detection.")
         
         # Process amounts
         amounts = df[amount_col].fillna(0).values
@@ -110,11 +135,11 @@ async def upload_file(file: UploadFile = File(...)):
             risk_scores[~fraud_mask] = 0.08
         else:
             print("📊 No fraud column found. Using rule-based detection.")
-            # Rule-based fraud detection
+            # Rule-based fraud detection based on amount
             fraud_mask = np.zeros(len(amounts), dtype=bool)
             risk_scores = np.zeros(len(amounts))
             
-            # Apply rules
+            # Apply rules based on amount thresholds
             high_amount_mask = amounts > 10000
             fraud_mask[high_amount_mask] = True
             risk_scores[high_amount_mask] = 0.95
@@ -124,6 +149,7 @@ async def upload_file(file: UploadFile = File(...)):
             risk_scores[med_high_mask] = 0.85
             
             med_mask = (amounts > 2000) & (amounts <= 5000)
+            # Random but deterministic based on amount
             fraud_mask[med_mask] = amounts[med_mask] > 3000
             risk_scores[med_mask] = 0.65
             
@@ -154,18 +180,20 @@ async def upload_file(file: UploadFile = File(...)):
         fraud_idx = 0
         legit_idx = 0
         
+        # Get sample columns for context (first 3 non-amount columns)
+        context_cols = [col for col in df.columns[:5] if col != amount_col and col != fraud_col][:2]
+        
         for i in range(total):
-            # Get context from first available column
+            # Get context from available columns
             context = ""
-            for col in df.columns[:3]:
-                if col != amount_col and col != fraud_col:
-                    try:
-                        val = df[col].iloc[i]
-                        if pd.notna(val) and str(val) != 'nan':
-                            context = str(val)[:50]
-                            break
-                    except:
-                        pass
+            for col in context_cols:
+                try:
+                    val = df[col].iloc[i]
+                    if pd.notna(val) and str(val) != 'nan':
+                        context = str(val)[:50]
+                        break
+                except:
+                    pass
             
             is_fraud = bool(fraud_mask[i])
             
@@ -239,7 +267,7 @@ async def upload_file(file: UploadFile = File(...)):
         print(f"❌ Error: {str(e)}")
         import traceback
         traceback.print_exc()
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        return JSONResponse(status_code=500, content={"error": f"Error processing file: {str(e)}"})
 
 @app.get("/api/v1/fraud-transactions")
 async def get_fraud_transactions(page: int = Query(1, ge=1), limit: int = Query(50, le=100)):
@@ -341,7 +369,7 @@ async def root():
     return {
         "message": "FraudShield AI API is running",
         "status": "active",
-        "features": "Server-side pagination for large datasets"
+        "features": "Auto-detects amount column from any CSV"
     }
 
 if __name__ == "__main__":
