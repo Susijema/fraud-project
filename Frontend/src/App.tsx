@@ -478,7 +478,7 @@ function UploadPage({ onUpload }: { onUpload: (data: any) => void }) {
   );
 }
 
-// ==================== FRAUD ANALYSIS PAGE ====================
+// ==================== FRAUD ANALYSIS PAGE - SHOWS ALL FRAUD CASES ====================
 function FraudAnalysis({ metrics }: { transactions: any[], metrics: any }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -636,7 +636,7 @@ function FraudAnalysis({ metrics }: { transactions: any[], metrics: any }) {
           <p className="text-3xl font-bold text-blue-400">{metrics?.avgRiskScore || '0.85'}</p>
         </div>
         <div className="bg-purple-500/10 rounded-lg p-4 border border-purple-500/20">
-          <p className="text-gray-400 text-sm">Items Per Page</p>
+          <p className="text-gray-400 text-sm">Showing Per Page</p>
           <p className="text-3xl font-bold text-purple-400">{itemsPerPage}</p>
         </div>
       </div>
