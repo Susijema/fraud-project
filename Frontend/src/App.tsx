@@ -14,7 +14,8 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ComposedChart, Area, Line
 } from 'recharts';
 
-const API_URL = 'http://localhost:8000/api/v1';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+const HEALTH_URL = import.meta.env.VITE_BACKEND_HEALTH_URL || 'http://localhost:8000/';
 
 // ==================== DASHBOARD PAGE ====================
 function Dashboard({ metrics, hasData, transactions }: { metrics: any, hasData: boolean, transactions: any[] }) {
@@ -322,17 +323,26 @@ function UploadPage({ onUpload }: { onUpload: (data: any) => void }) {
       const response = await axios.post(`${API_URL}/upload`, formData);
       clearInterval(interval);
       setProgress(100);
+      
       const data = response.data;
-      setStatus(`✅ Success! Processed ${data.metrics.totalTransactions.toLocaleString()} transactions`);
-      setPreview(data.transactions.slice(0, 10));
+      if (data.error) {
+        setStatus(`❌ Error: ${data.error}`);
+        return;
+      }
+      
+      const transactionsCount = data.metrics?.totalTransactions || data.transactions?.length || 0;
+      setStatus(`✅ Success! Processed ${transactionsCount.toLocaleString()} transactions`);
+      setPreview(data.transactions?.slice(0, 10) || []);
       onUpload(data);
     } catch (error: any) {
       clearInterval(interval);
-      setStatus('❌ Error processing file. Please check the format.');
+      const errorMsg = error.response?.data?.error || error.message || 'Error processing file';
+      setStatus(`❌ ${errorMsg}. Please check your connection and file format.`);
+      console.error('Upload error:', error);
     } finally {
       setTimeout(() => {
         setUploading(false);
-        setProgress(0);
+        if (progress === 100) setProgress(0);
       }, 1000);
     }
   };
@@ -344,11 +354,19 @@ function UploadPage({ onUpload }: { onUpload: (data: any) => void }) {
     try {
       const response = await axios.get(`${API_URL}/sample`);
       const data = response.data;
-      setStatus(`✅ Sample dataset loaded! ${data.transactions.length} transactions ready.`);
-      setPreview(data.preview);
+      
+      if (data.error) {
+        setStatus(`❌ Error: ${data.error}`);
+        return;
+      }
+      
+      setStatus(`✅ Sample dataset loaded! ${data.transactions?.length || 0} transactions ready.`);
+      setPreview(data.preview || data.transactions?.slice(0, 10) || []);
       onUpload(data);
-    } catch (error) {
-      setStatus('❌ Error loading sample data');
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.error || error.message || 'Error loading sample data';
+      setStatus(`❌ ${errorMsg}`);
+      console.error('Sample load error:', error);
     } finally {
       setUploading(false);
     }
@@ -1443,9 +1461,12 @@ function Layout({ children }: { children: React.ReactNode }) {
             <Shield className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-              FraudShield AI
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+                FraudShield AI
+              </h1>
+              <div className={`w-2 h-2 rounded-full ${window.backendConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} title={window.backendConnected ? 'Backend Connected' : 'Backend Disconnected'}></div>
+            </div>
             <p className="text-xs text-gray-500">Fraud Detection Platform</p>
           </div>
         </div>
@@ -1503,11 +1524,31 @@ function App() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [metrics, setMetrics] = useState<any>(null);
   const [hasData, setHasData] = useState(false);
+  const [backendStatus, setBackendStatus] = useState<'online' | 'offline'>('offline');
   
+  useEffect(() => {
+    const checkBackend = async () => {
+      try {
+        await axios.get(HEALTH_URL);
+        setBackendStatus('online');
+        // @ts-ignore
+        window.backendConnected = true;
+      } catch (e) {
+        setBackendStatus('offline');
+        // @ts-ignore
+        window.backendConnected = false;
+      }
+    };
+    checkBackend();
+    const interval = setInterval(checkBackend, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleUpload = (data: any) => {
+    if (!data || !data.transactions) return;
     console.log('Upload received:', data.transactions.length, 'transactions');
     setTransactions(data.transactions);
-    setMetrics(data.metrics);
+    setMetrics(data.metrics || null);
     setHasData(true);
   };
   
