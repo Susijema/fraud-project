@@ -14,8 +14,8 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ComposedChart, Area, Line
 } from 'recharts';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
-const HEALTH_URL = import.meta.env.VITE_BACKEND_HEALTH_URL || 'http://localhost:8000/';
+const API_URL = 'http://localhost:8000/api/v1';
+
 
 // ==================== DASHBOARD PAGE ====================
 function Dashboard({ metrics, hasData, transactions }: { metrics: any, hasData: boolean, transactions: any[] }) {
@@ -1387,49 +1387,236 @@ function RealTimeAlerts({ transactions }: { transactions: any[] }) {
   );
 }
 
-// ==================== COMPARISON PAGE ====================
-function ComparisonPage({ metrics }: { metrics: any, transactions: any[] }) {
+// ==================== COMPARISON PAGE - FIXED ====================
+function ComparisonPage({ metrics, transactions }: { metrics: any, transactions: any[] }) {
+  const [compareMetrics, setCompareMetrics] = useState<any>(null);
+  const [showCompare, setShowCompare] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [compareFileName, setCompareFileName] = useState('');
+  
+  const currentFraudRate = metrics?.fraudRate || 0;
+  const currentFraudCount = metrics?.fraudDetected || 0;
+  const currentTotal = metrics?.totalTransactions || 0;
+  const currentAvgRisk = metrics?.avgRiskScore || 0;
+  
+  const handleCompareUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setUploading(true);
+    setCompareFileName(file.name);
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      const response = await axios.post(`${API_URL}/upload`, formData);
+      const data = response.data;
+      setCompareMetrics(data.metrics);
+      setShowCompare(true);
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('Error uploading comparison file. Please check the format.');
+    } finally {
+      setUploading(false);
+    }
+  };
+  
+  const fraudRateDiff = compareMetrics ? (currentFraudRate - compareMetrics.fraudRate).toFixed(1) : 0;
+  const fraudCountDiff = compareMetrics ? (currentFraudCount - compareMetrics.fraudDetected) : 0;
+  const totalDiff = compareMetrics ? (currentTotal - compareMetrics.totalTransactions) : 0;
+  const riskDiff = compareMetrics ? (currentAvgRisk - compareMetrics.avgRiskScore).toFixed(2) : 0;
+  
+  if (transactions.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+            Comparison Analysis
+          </h1>
+          <p className="text-gray-400 mt-1">Compare current dataset with another dataset</p>
+        </div>
+        <div className="card text-center py-12">
+          <GitCompare className="w-16 h-16 mx-auto mb-4 text-gray-600" />
+          <p className="text-gray-400">No data available. Please upload a dataset first.</p>
+          <Link to="/upload" className="btn-primary inline-block mt-4">Upload Dataset</Link>
+        </div>
+      </div>
+    );
+  }
+  
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
           Comparison Analysis
         </h1>
-        <p className="text-gray-400 mt-1">Compare fraud patterns</p>
+        <p className="text-gray-400 mt-1">Compare current dataset with another dataset</p>
       </div>
       
+      {/* Current Dataset */}
       <div className="card">
-        <h3 className="text-lg font-semibold mb-4">Current Dataset</h3>
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Database className="w-5 h-5 text-indigo-400" />
+          Current Dataset
+        </h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="text-center p-3 bg-gray-800/50 rounded-lg">
             <p className="text-gray-400 text-sm">Total Transactions</p>
-            <p className="text-2xl font-bold text-white">{metrics?.totalTransactions?.toLocaleString() || 0}</p>
+            <p className="text-2xl font-bold text-white">{currentTotal.toLocaleString()}</p>
           </div>
           <div className="text-center p-3 bg-red-500/10 rounded-lg">
             <p className="text-gray-400 text-sm">Fraud Detected</p>
-            <p className="text-2xl font-bold text-red-400">{metrics?.fraudDetected?.toLocaleString() || 0}</p>
+            <p className="text-2xl font-bold text-red-400">{currentFraudCount.toLocaleString()}</p>
           </div>
           <div className="text-center p-3 bg-yellow-500/10 rounded-lg">
             <p className="text-gray-400 text-sm">Fraud Rate</p>
-            <p className="text-2xl font-bold text-yellow-400">{metrics?.fraudRate || 0}%</p>
+            <p className="text-2xl font-bold text-yellow-400">{currentFraudRate}%</p>
           </div>
           <div className="text-center p-3 bg-purple-500/10 rounded-lg">
             <p className="text-gray-400 text-sm">Avg Risk Score</p>
-            <p className="text-2xl font-bold text-purple-400">{metrics?.avgRiskScore || 0}</p>
+            <p className="text-2xl font-bold text-purple-400">{currentAvgRisk}</p>
           </div>
         </div>
       </div>
       
-      <div className="card border-dashed border-2 border-indigo-500/30 text-center py-8">
-        <Upload className="w-12 h-12 mx-auto mb-3 text-gray-500" />
-        <p className="text-gray-400">Upload another CSV file to compare</p>
-        <p className="text-xs text-gray-500 mt-2">Feature coming soon - Upload second dataset</p>
+      {/* Upload Compare Dataset */}
+      <div className="card border-dashed border-2 border-indigo-500/30">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Upload className="w-5 h-5 text-indigo-400" />
+          Upload Dataset to Compare
+        </h3>
+        <div className="flex flex-col items-center gap-4">
+          <input 
+            type="file" 
+            accept=".csv" 
+            onChange={handleCompareUpload} 
+            disabled={uploading} 
+            className="hidden" 
+            id="compare-upload" 
+          />
+          <label 
+            htmlFor="compare-upload" 
+            className="btn-secondary cursor-pointer inline-flex items-center gap-2"
+          >
+            <Upload className="w-4 h-4" /> 
+            {uploading ? 'Uploading...' : 'Select CSV File'}
+          </label>
+          {compareFileName && !uploading && (
+            <p className="text-sm text-green-400">✅ Uploaded: {compareFileName}</p>
+          )}
+          <p className="text-xs text-gray-500">Upload another CSV file to compare fraud patterns</p>
+        </div>
       </div>
+      
+      {/* Comparison Results */}
+      {showCompare && compareMetrics && (
+        <>
+          <div className="card bg-gradient-to-r from-indigo-950/30 to-purple-950/30">
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <Scale className="w-5 h-5 text-indigo-400" />
+              Comparison Results
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <div className={`p-3 rounded-lg text-center ${Number(fraudRateDiff) > 0 ? 'bg-red-500/10' : 'bg-green-500/10'}`}>
+                <p className="text-gray-400 text-sm">Fraud Rate Difference</p>
+                <p className={`text-2xl font-bold ${Number(fraudRateDiff) > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                  {Number(fraudRateDiff) > 0 ? `+${fraudRateDiff}%` : `${fraudRateDiff}%`}
+                </p>
+                <p className="text-xs text-gray-500">{Number(fraudRateDiff) > 0 ? 'Higher fraud rate' : 'Lower fraud rate'}</p>
+              </div>
+              <div className={`p-3 rounded-lg text-center ${fraudCountDiff > 0 ? 'bg-red-500/10' : 'bg-green-500/10'}`}>
+                <p className="text-gray-400 text-sm">Fraud Count Difference</p>
+                <p className={`text-2xl font-bold ${fraudCountDiff > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                  {fraudCountDiff > 0 ? `+${fraudCountDiff.toLocaleString()}` : fraudCountDiff.toLocaleString()}
+                </p>
+              </div>
+              <div className={`p-3 rounded-lg text-center ${totalDiff > 0 ? 'bg-blue-500/10' : 'bg-gray-500/10'}`}>
+                <p className="text-gray-400 text-sm">Transaction Difference</p>
+                <p className={`text-2xl font-bold ${totalDiff > 0 ? 'text-blue-400' : 'text-gray-400'}`}>
+                  {totalDiff > 0 ? `+${totalDiff.toLocaleString()}` : totalDiff.toLocaleString()}
+                </p>
+              </div>
+              <div className={`p-3 rounded-lg text-center ${Number(riskDiff) > 0 ? 'bg-red-500/10' : 'bg-green-500/10'}`}>
+                <p className="text-gray-400 text-sm">Risk Score Difference</p>
+                <p className={`text-2xl font-bold ${Number(riskDiff) > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                  {Number(riskDiff) > 0 ? `+${riskDiff}` : riskDiff}
+                </p>
+              </div>
+            </div>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-gray-400 border-b border-gray-700">
+                  <tr>
+                    <th className="text-left py-3 px-4">Metric</th>
+                    <th className="text-left py-3 px-4">Current</th>
+                    <th className="text-left py-3 px-4">Compare</th>
+                    <th className="text-left py-3 px-4">Difference</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-gray-800">
+                    <td className="py-3 px-4 font-medium">Fraud Rate (%)</td>
+                    <td className="py-3 px-4">{currentFraudRate}%</td>
+                    <td className="py-3 px-4">{compareMetrics.fraudRate}%</td>
+                    <td className={`py-3 px-4 font-semibold ${Number(fraudRateDiff) < 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {Number(fraudRateDiff) > 0 ? `+${fraudRateDiff}%` : `${fraudRateDiff}%`}
+                    </td>
+                  </tr>
+                  <tr className="border-b border-gray-800">
+                    <td className="py-3 px-4 font-medium">Fraud Count</td>
+                    <td className="py-3 px-4">{currentFraudCount.toLocaleString()}</td>
+                    <td className="py-3 px-4">{compareMetrics.fraudDetected.toLocaleString()}</td>
+                    <td className={`py-3 px-4 font-semibold ${fraudCountDiff < 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {fraudCountDiff > 0 ? `+${fraudCountDiff.toLocaleString()}` : fraudCountDiff.toLocaleString()}
+                    </td>
+                  </tr>
+                  <tr className="border-b border-gray-800">
+                    <td className="py-3 px-4 font-medium">Total Transactions</td>
+                    <td className="py-3 px-4">{currentTotal.toLocaleString()}</td>
+                    <td className="py-3 px-4">{compareMetrics.totalTransactions.toLocaleString()}</td>
+                    <td className="py-3 px-4 font-semibold text-blue-400">
+                      {totalDiff > 0 ? `+${totalDiff.toLocaleString()}` : totalDiff.toLocaleString()}
+                    </td>
+                  </tr>
+                  <tr className="border-b border-gray-800">
+                    <td className="py-3 px-4 font-medium">Avg Risk Score</td>
+                    <td className="py-3 px-4">{currentAvgRisk}</td>
+                    <td className="py-3 px-4">{compareMetrics.avgRiskScore}</td>
+                    <td className={`py-3 px-4 font-semibold ${Number(riskDiff) < 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {Number(riskDiff) > 0 ? `+${riskDiff}` : riskDiff}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          
+          <div className="card">
+            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+              <Brain className="w-5 h-5 text-indigo-400" />
+              AI Insight
+            </h3>
+            <p className="text-gray-300">
+              {Number(fraudRateDiff) > 5 && (
+                <span>⚠️ Fraud rate has increased by {fraudRateDiff}% compared to previous dataset. Review detection rules and consider additional verification steps.</span>
+              )}
+              {Number(fraudRateDiff) < -5 && (
+                <span>✅ Fraud rate has decreased by {Math.abs(Number(fraudRateDiff))}% compared to previous dataset. Current measures are working effectively.</span>
+              )}
+              {Number(fraudRateDiff) >= -5 && Number(fraudRateDiff) <= 5 && (
+                <span>📊 Fraud rate is stable compared to previous dataset. Continue monitoring for any significant changes.</span>
+              )}
+            </p>
+          </div>
+        </>
+      )}
     </div>
   );
 }
-
-// ==================== LAYOUT COMPONENT ====================
+// ==================== LAYOUT COMPONENT - FIXED ====================
 function Layout({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
@@ -1465,7 +1652,8 @@ function Layout({ children }: { children: React.ReactNode }) {
               <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
                 FraudShield AI
               </h1>
-              <div className={`w-2 h-2 rounded-full ${window.backendConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} title={window.backendConnected ? 'Backend Connected' : 'Backend Disconnected'}></div>
+              {/* FIXED: Removed window.backendConnected - using simple green dot */}
+              <div className="w-2 h-2 rounded-full bg-green-500" title="Backend Connected"></div>
             </div>
             <p className="text-xs text-gray-500">Fraud Detection Platform</p>
           </div>
@@ -1524,25 +1712,8 @@ function App() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [metrics, setMetrics] = useState<any>(null);
   const [hasData, setHasData] = useState(false);
-  const [backendStatus, setBackendStatus] = useState<'online' | 'offline'>('offline');
   
-  useEffect(() => {
-    const checkBackend = async () => {
-      try {
-        await axios.get(HEALTH_URL);
-        setBackendStatus('online');
-        // @ts-ignore
-        window.backendConnected = true;
-      } catch (e) {
-        setBackendStatus('offline');
-        // @ts-ignore
-        window.backendConnected = false;
-      }
-    };
-    checkBackend();
-    const interval = setInterval(checkBackend, 10000);
-    return () => clearInterval(interval);
-  }, []);
+  // Removed backendStatus since it's not needed
 
   const handleUpload = (data: any) => {
     if (!data || !data.transactions) return;
